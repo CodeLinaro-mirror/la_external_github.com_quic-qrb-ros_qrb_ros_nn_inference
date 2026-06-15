@@ -12,10 +12,8 @@
 
 ## 👋 Overview
 
-> WARNING: The inference of TFLite model is NOT supported on version 1.1.0-jazzy.
-
 **qrb_ros_nn_inference** is a ROS2 package for performing neural network model, providing 🤖AI-based perception for robotics applications. It provides:
-- ✨model inference API which supports three kinds of model format: **.tflite**, **.so**, **.bin**
+- ✨model inference API which supports three kinds of model format: **.so**, **.bin**
 - 🚀model inference acceleration based on Qualcomm platforms
 
 <div align="center">
@@ -34,8 +32,6 @@
   * [APIs](#-apis)
     * [`qrb_ros_nn_inference` APIs](#-qrb_ros_nn_inference-apis)
     * [`qrb_inference_manager` APIs](#-qrb_inference_manager-apis)
-  * [Supported Targets](#-supported-targets)
-  * [Installation](#-installation)
   * [Usage](#-usage)
   * [Build from Source](#-build-from-source)
   * [Contributing](#-contributing)
@@ -96,49 +92,9 @@ Please see [qrb_inference_manager APIs](./qrb_inference_manager/Documentation.md
 
 ---
 
-## 🎯 Supported Targets
-
-<table >
-  <tr>
-    <th>Development Hardware</th>
-    <th>Hardware Overview</th>
-  </tr>
-  <tr>
-    <td>Qualcomm Dragonwing™ RB3 Gen2</td>
-    <th><a href="https://www.qualcomm.com/developer/hardware/rb3-gen-2-development-kit"><img src="https://s7d1.scene7.com/is/image/dmqualcommprod/rb3-gen2-carousel?fmt=webp-alpha&qlt=85" width="180"/></a></th>
-  </tr>
-    <tr>
-    <td>Qualcomm Dragonwing™ IQ-9075 EVK</td>
-    <th><a href="https://www.qualcomm.com/products/internet-of-things/industrial-processors/iq9-series/iq-9075"><img src="https://s7d1.scene7.com/is/image/dmqualcommprod/dragonwing-IQ-9075-EVK?$QC_Responsive$&fmt=png-alpha" width="160"></a></th>
-  </tr>
-</table>
-
----
-
-## ✨ Installation
-
-> [!IMPORTANT]
-> **PREREQUISITES**: The following steps need to be run on **Qualcomm Ubuntu** and **ROS Jazzy**.<br>
-> Reference [Install Ubuntu on Qualcomm IoT Platforms](https://ubuntu.com/download/qualcomm-iot) and [Install ROS Jazzy](https://docs.ros.org/en/jazzy/index.html) to setup environment. <br>
-> For Qualcomm Linux, please check out the [Qualcomm Intelligent Robotics Product SDK](https://docs.qualcomm.com/bundle/publicresource/topics/80-70018-265/introduction_1.html?vproduct=1601111740013072&version=1.4&facet=Qualcomm%20Intelligent%20Robotics%20Product%20(QIRP)%20SDK) documents.
-
-Add Qualcomm IOT PPA for Ubuntu:
-
-```bash
-sudo add-apt-repository ppa:ubuntu-qcom-iot/qcom-noble-ppa
-sudo add-apt-repository ppa:ubuntu-qcom-iot/qirp
-sudo apt update
-```
-
-Install Debian package:
-
-```bash
-sudo apt install ros-jazzy-qrb-ros-nn-inference
-```
-
 ## 🚀 Usage
 
-1. install the qrb_ros_nn_inference by steps above.
+1. install the qrb_ros_nn_inference.
 
 2. prepare the pre-process node and post-process node for model inference
 
@@ -150,7 +106,7 @@ sudo apt install ros-jazzy-qrb-ros-nn-inference
 
 3. test qrb_ros_nn_inference with YOLOv8 detection model
 
-    3.1 download yolov8.tflite model by following [QC AI hub Getting Started](https://app.aihub.qualcomm.com/docs/hub/getting_started.html).
+    3.1 download [YOLOv8-Detection](https://aihub.qualcomm.com/iot/models/yolov8_det).
 
     3.2 download the test image for object detecion
 
@@ -218,25 +174,17 @@ sudo apt install ros-jazzy-qrb-ros-nn-inference
 
 ## 👨‍💻 Build from Source
 
-Install dependencies:
+Source is located at sources/quic-qrb-ros/qrb_ros_nn_inference in the workspace.
 
-```bash
-sudo apt install -y software-properties-common
-sudo add-apt-repository ppa:ubuntu-qcom-iot/qcom-noble-ppa
-sudo apt update
-sudo apt install -y libtensorflow-lite-c-qcom1 libtensorflow-lite-qcom-dev libqnn-dev libqnn1
+```
+cd build-utils/ubuntu/
+python3 build.py --gen-debians --package ros-jazzy-qrb-ros-nn-inference
 ```
 
-Download the source code and build with colcon:
+Built .deb files are output to:
 
-```bash
-source /opt/ros/jazzy/setup.bash && \
-mkdir -p ~/ros-ws/src && \
-cd ~/ros-ws/src && \
-git clone https://github.com/qualcomm-qrb-ros/qrb_ros_nn_inference && \
-git clone https://github.com/qualcomm-qrb-ros/qrb_ros_interfaces && \
-cd ~/ros-ws/ && \
-colcon build --packages-up-to qrb_ros_nn_inference
+```
+<workspace>/debian_packages/oss/ros-jazzy-qrb-ros-nn-inference
 ```
 
 ---
