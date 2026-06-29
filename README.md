@@ -45,50 +45,17 @@
 
 #### ROS node parameters
 
-<table>
-  <tr>
-    <th>Parameter</th>
-    <th>Type</th>
-    <th>Default Value</th>
-    <th>Description</th>
-  </tr>
-  <tr>
-    <td>backend_option</td>
-    <td>string</td>
-    <td>""</td>
-    <td>Hardware acceleration option for model inference, vaild values are listed <a href="https://github.com/qualcomm-qrb-ros/qrb_ros_nn_inference/blob/main/qrb_inference_manager/Documentation.md#2.1" target="_blank">here</a></td>
-  </tr>
-  <tr>
-    <td>model_path</td>
-    <td>string</td>
-    <td>""</td>
-    <td>Path of model file</td>
-  </tr>
-</table>
+| Parameter | Type | Default Value | Description |
+| --------- | ---- | ------------- | ----------- |
+| backend_option | string | "" | Hardware acceleration option for model inference, vaild values are listed [here](https://github.com/qualcomm-qrb-ros/qrb_ros_nn_inference/blob/main/qrb_inference_manager/Documentation.md#2.1) |
+| model_path | string | "" | Path of model file |
 
 #### ROS topics
 
-<table>
-  <tr>
-    <th>Topic Name</th>
-    <th>Message Type</th>
-    <th>Description</th>
-  </tr>
-  <tr>
-    <td>qrb_inference_input_tensor</td>
-    <td><a href="https://github.com/qualcomm-qrb-ros/qrb_ros_interfaces/blob/main/qrb_ros_tensor_list_msgs/msg/TensorList.msg" target="_blank">TensorList</a></td>
-    <td>Subscribed topic</td>
-  </tr>
-  <tr>
-    <td>qrb_inference_output_tensor</td>
-    <td><a href="https://github.com/qualcomm-qrb-ros/qrb_ros_interfaces/blob/main/qrb_ros_tensor_list_msgs/msg/TensorList.msg" target="_blank">TensorList</a></td>
-    <td>Published topic</td>
-  </tr>
-</table>
-
-### 🔹 `qrb_inference_manager` APIs
-
-Please see [qrb_inference_manager APIs](./qrb_inference_manager/Documentation.md).
+| Topic Name | Message Type | Description |
+| ---------- | ------------ | ----------- |
+| qrb_inference_input_tensor | [TensorList](https://github.com/qualcomm-qrb-ros/qrb_ros_interfaces/blob/main/qrb_ros_tensor_list_msgs/msg/TensorList.msg) | Subscribed topic |
+| qrb_inference_output_tensor | [TensorList](https://github.com/qualcomm-qrb-ros/qrb_ros_interfaces/blob/main/qrb_ros_tensor_list_msgs/msg/TensorList.msg) | Published topic |
 
 ---
 
