@@ -12,7 +12,9 @@ namespace qrb::inference_mgr
 class QrbInferenceManager
 {
 public:
-  QrbInferenceManager(const std::string & model_path, const std::string & backend_option = "");
+  QrbInferenceManager(const std::string & model_path,
+      const std::string & backend_option = "",
+      int htp_core_id = -1);
   ~QrbInferenceManager() = default;
   bool inference_execute(const std::vector<uint8_t> & input_tensor_data);
   std::vector<OutputTensor> get_output_tensors();

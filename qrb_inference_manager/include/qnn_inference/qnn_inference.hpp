@@ -13,7 +13,9 @@ namespace qrb::inference_mgr
 class QnnInference : public QrbInference
 {
 public:
-  QnnInference(const std::string & model_path, const std::string & backend_option);
+  QnnInference(const std::string & model_path,
+      const std::string & backend_option,
+      int htp_core_id = -1);
   ~QnnInference();
   StatusCode inference_init() override;
   StatusCode inference_graph_init() override;
@@ -34,11 +36,14 @@ private:
   GraphInfo ** graphs_info_ = nullptr;
   uint32_t graphs_count_ = 0;
   bool support_device_ = false;
+  int htp_core_id_ = -1;
   std::vector<OutputTensor> output_tensor_;
   std::unique_ptr<QnnInterface> qnn_interface_{ nullptr };
 
   StatusCode initialize_backend();
   StatusCode create_device();
+  // Sets CDSP_LIBRARY_PATH to /vendor/dsp/cdsp{core_id} before deviceCreate()
+  void bind_cdsp_core(int core_id);
   StatusCode create_context();
   StatusCode compose_graphs();
   StatusCode finalize_graphs();

@@ -46,16 +46,21 @@
 #### ROS node parameters
 
 | Parameter | Type | Default Value | Description |
-| --------- | ---- | ------------- | ----------- |
-| backend_option | string | "" | Hardware acceleration option for model inference, vaild values are listed [here](https://github.com/qualcomm-qrb-ros/qrb_ros_nn_inference/blob/main/qrb_inference_manager/Documentation.md#2.1) |
+| :---: | :---: | :---: | :--- |
+| backend_option | string | "" | Hardware acceleration option for model inference, valid values are listed [here](https://github.com/qualcomm-qrb-ros/qrb_ros_nn_inference/blob/main/qrb_inference_manager/Documentation.md#2.1) |
 | model_path | string | "" | Path of model file |
+| htp_core_id | int | -1 | Bind inference to a specific HTP core (CDSP/NSP). `-1` = no binding (default). `0` = NSP0, `1` = NSP1, etc. Only takes effect when `backend_option` is `libQnnHtp.so`; ignored (with a warning) for other backends. Requires a SoC with multiple HTP cores (e.g. QAM8797P). |
 
 #### ROS topics
 
 | Topic Name | Message Type | Description |
-| ---------- | ------------ | ----------- |
+| :---: | :---: | :--- |
 | qrb_inference_input_tensor | [TensorList](https://github.com/qualcomm-qrb-ros/qrb_ros_interfaces/blob/main/qrb_ros_tensor_list_msgs/msg/TensorList.msg) | Subscribed topic |
 | qrb_inference_output_tensor | [TensorList](https://github.com/qualcomm-qrb-ros/qrb_ros_interfaces/blob/main/qrb_ros_tensor_list_msgs/msg/TensorList.msg) | Published topic |
+
+### 🔹 `qrb_inference_manager` APIs
+
+Please see [qrb_inference_manager APIs](./qrb_inference_manager/Documentation.md).
 
 ---
 

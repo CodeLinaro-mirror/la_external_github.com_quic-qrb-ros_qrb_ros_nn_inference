@@ -36,8 +36,12 @@ struct OutputTensor {
  * \throw std::logic_error, if param not meet requirement
  */
 QrbInferenceManager(const std::string &model_path,
-                    const std::string &backend_option = "");
+                    const std::string &backend_option = "",
+                    int htp_core_id = -1);
 ```
+
+The optional third argument `int htp_core_id` (default `-1`) binds the inference
+to a specific HTP core when the backend is `libQnnHtp.so`. `-1` disables binding.
 
 Warning⚠️: Models in different formats need different backend option, make sure your parameters are vaild
 

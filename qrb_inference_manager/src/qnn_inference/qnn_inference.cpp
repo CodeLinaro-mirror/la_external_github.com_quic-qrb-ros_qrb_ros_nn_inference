@@ -3,11 +3,15 @@
 
 #include "qnn_inference/qnn_inference.hpp"
 
+#include <cstdlib>
+
 namespace qrb::inference_mgr
 {
 
-QnnInference::QnnInference(const std::string & model_path, const std::string & backend_option)
-  : model_path_(model_path), backend_option_(backend_option)
+QnnInference::QnnInference(const std::string & model_path,
+    const std::string & backend_option,
+    int htp_core_id)
+  : model_path_(model_path), backend_option_(backend_option), htp_core_id_(htp_core_id)
 {
   auto is_bin_model = (std::string::npos != model_path.find(".bin"));
 
@@ -150,6 +154,39 @@ StatusCode QnnInference::initialize_backend()
   return StatusCode::SUCCESS;
 }
 
+void QnnInference::bind_cdsp_core(int core_id)
+{
+  std::string cdsp_path = "/vendor/dsp/cdsp" + std::to_string(core_id);
+
+  // Build new CDSP_LIBRARY_PATH: target cdsp path first, then non-cdsp entries only
+  // (skel lib paths such as hexagon-v*/unsigned).
+  // All /vendor/dsp/cdsp* entries from the existing value are stripped so that
+  // the HTP backend opens a session exclusively on the chosen CDSP.
+  std::string new_val = cdsp_path;
+  const char * existing = std::getenv("CDSP_LIBRARY_PATH");
+  if (existing && existing[0] != '\0') {
+    std::string existing_str(existing);
+    size_t start = 0;
+    while (true) {
+      size_t sep = existing_str.find(';', start);
+      std::string token = existing_str.substr(
+          start, sep == std::string::npos ? std::string::npos : sep - start);
+      // Keep only entries that are NOT /vendor/dsp/cdsp* paths
+      if (!token.empty() && token.find("/vendor/dsp/cdsp") == std::string::npos) {
+        new_val += ";";
+        new_val += token;
+      }
+      if (sep == std::string::npos) {
+        break;
+      }
+      start = sep + 1;
+    }
+  }
+
+  ::setenv("CDSP_LIBRARY_PATH", new_val.c_str(), 1 /*overwrite*/);
+  QRB_INFO("Binding HTP to CDSP core ", core_id, " (CDSP_LIBRARY_PATH=", new_val, ")");
+}
+
 StatusCode QnnInference::create_device()
 {
   auto is_device_property_supported = [this] {
@@ -168,7 +205,18 @@ StatusCode QnnInference::create_device()
 
   if (StatusCode::FAILURE != is_device_property_supported()) {
     if (nullptr != qnn_interface_->interface.deviceCreate) {
-      auto qnn_status = qnn_interface_->interface.deviceCreate(nullptr, nullptr, &(device_handle_));
+      bool is_htp_backend = (std::string::npos != backend_option_.find("libQnnHtp"));
+
+      if (is_htp_backend && htp_core_id_ >= 0) {
+        bind_cdsp_core(htp_core_id_);
+      } else if (!is_htp_backend && htp_core_id_ >= 0) {
+        QRB_WARNING("htp_core_id ignored: backend is not libQnnHtp");
+      }
+
+      // deviceCreate with nullptr config: the HTP backend picks up CDSP_LIBRARY_PATH
+      // to select which CDSP to open a session on.
+      auto qnn_status =
+          qnn_interface_->interface.deviceCreate(nullptr, nullptr, &(device_handle_));
 
       if (QNN_SUCCESS != qnn_status && QNN_DEVICE_ERROR_UNSUPPORTED_FEATURE != qnn_status) {
         QRB_ERROR("Failed to create device!");

@@ -5,10 +5,18 @@
 #define QRB_ROS_INFERENCE_NODE_HPP_
 
 #include <memory>
+#include <string>
+
 #include <rclcpp/rclcpp.hpp>
 
-#include "qrb_inference_manager.hpp"
 #include "qrb_ros_tensor_list_msgs/msg/tensor_list.hpp"
+
+// Forward declaration — keeps this header free of QNN SDK transitive dependencies.
+// The full definition is included in qrb_ros_inference_node.cpp.
+namespace qrb::inference_mgr
+{
+class QrbInferenceManager;
+}  // namespace qrb::inference_mgr
 
 namespace qrb_ros::nn_inference
 {
@@ -19,14 +27,14 @@ class QrbRosInferenceNode : public rclcpp::Node
 {
 public:
   QrbRosInferenceNode(const rclcpp::NodeOptions & options);
-  ~QrbRosInferenceNode() = default;
+  ~QrbRosInferenceNode();
 
 private:
   std::unique_ptr<qrb::inference_mgr::QrbInferenceManager> qrb_inference_mgr_{ nullptr };
   rclcpp::Subscription<custom_msg::TensorList>::SharedPtr sub_{ nullptr };
   rclcpp::Publisher<custom_msg::TensorList>::SharedPtr pub_{ nullptr };
 
-  bool init(const std::string & model_path, const std::string & backend_option);
+  bool init(const std::string & model_path, const std::string & backend_option, int htp_core_id);
   void subscription_callback(const custom_msg::TensorList & msg);
   void publish_msg(custom_msg::TensorList pub_tensors);
 };

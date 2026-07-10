@@ -3,8 +3,14 @@
 
 #include "qrb_ros_nn_inference/qrb_ros_inference_node.hpp"
 
+// Include the full manager definition here (not in the header) to keep
+// qrb_ros_nn_inference decoupled from QNN SDK transitive headers.
+#include "qrb_inference_manager.hpp"
+
 namespace qrb_ros::nn_inference
 {
+
+QrbRosInferenceNode::~QrbRosInferenceNode() = default;
 
 /**
  * \brief inferenece init, create subscriper, create publisher
@@ -14,8 +20,9 @@ QrbRosInferenceNode::QrbRosInferenceNode(const rclcpp::NodeOptions & options)
 {
   std::string backend_option = this->declare_parameter("backend_option", "");
   std::string model_path = this->declare_parameter("model_path", "");
+  int htp_core_id = this->declare_parameter("htp_core_id", -1);
 
-  if (false == this->init(model_path, backend_option)) {
+  if (false == this->init(model_path, backend_option, htp_core_id)) {
     rclcpp::shutdown();
   }
 
@@ -77,12 +84,15 @@ void QrbRosInferenceNode::publish_msg(custom_msg::TensorList pub_tensors)
  * \brief initilize the qrb_inference_mgr_
  * \param model_path path of model
  * \param backend_option backend lib of QNN
+ * \param htp_core_id HTP core to bind (-1 = no binding)
  * \return true if success or false for failed
  */
-bool QrbRosInferenceNode::init(const std::string & model_path, const std::string & backend_option)
+bool QrbRosInferenceNode::init(const std::string & model_path,
+    const std::string & backend_option,
+    int htp_core_id)
 try {
-  qrb_inference_mgr_ =
-      std::make_unique<qrb::inference_mgr::QrbInferenceManager>(model_path, backend_option);
+  qrb_inference_mgr_ = std::make_unique<qrb::inference_mgr::QrbInferenceManager>(
+      model_path, backend_option, htp_core_id);
 
   return true;
 } catch (const std::logic_error & e) {
