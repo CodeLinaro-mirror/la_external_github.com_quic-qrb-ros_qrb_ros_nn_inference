@@ -11,14 +11,14 @@ namespace qrb::inference_mgr
 
 /**
  * \brief initialize qrb_inference_ to QnnInference
- * \param backend_option backend lib of QNN
  * \param model_path path of model
- * \param htp_core_id HTP core id for bounding (-1 means no bounding)
+ * \param backend_option backend lib of QNN
+ * \param htp_core_ids cores inside hwDevices[0] to bind to (empty = no binding)
  * \throw std::logic_error, if param not meet requirement
  */
 QrbInferenceManager::QrbInferenceManager(const std::string & model_path,
     const std::string & backend_option,
-    int htp_core_id)
+    const std::vector<int32_t> & htp_core_ids)
 {
   auto is_so_model = (std::string::npos != model_path.find(".so"));
   auto is_bin_model = (std::string::npos != model_path.find(".bin"));
@@ -27,7 +27,7 @@ QrbInferenceManager::QrbInferenceManager(const std::string & model_path,
     throw std::logic_error("ERROR: Model format NOT support!");
   }
 
-  qrb_inference_ = std::make_unique<QnnInference>(model_path, backend_option, htp_core_id);
+  qrb_inference_ = std::make_unique<QnnInference>(model_path, backend_option, htp_core_ids);
 
   if (qrb_inference_->inference_init() != StatusCode::SUCCESS) {
     throw std::logic_error("ERROR: Inference init fail!");

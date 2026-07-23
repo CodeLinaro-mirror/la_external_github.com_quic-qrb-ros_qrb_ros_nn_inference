@@ -12,9 +12,11 @@ namespace qrb::inference_mgr
 class QrbInferenceManager
 {
 public:
+  // htp_core_ids: indices into hwDevices[0].v1.cores[] to bind to.
+  // Empty = no core binding (default QNN behavior).
   QrbInferenceManager(const std::string & model_path,
       const std::string & backend_option = "",
-      int htp_core_id = -1);
+      const std::vector<int32_t> & htp_core_ids = {});
   ~QrbInferenceManager() = default;
   bool inference_execute(const std::vector<uint8_t> & input_tensor_data);
   std::vector<OutputTensor> get_output_tensors();

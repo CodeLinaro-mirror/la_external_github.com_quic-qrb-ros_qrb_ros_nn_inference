@@ -3,14 +3,12 @@
 
 #include "qrb_ros_nn_inference/qrb_ros_inference_node.hpp"
 
-// Include the full manager definition here (not in the header) to keep
-// qrb_ros_nn_inference decoupled from QNN SDK transitive headers.
-#include "qrb_inference_manager.hpp"
+#include <cstdint>
+#include <string>
+#include <vector>
 
 namespace qrb_ros::nn_inference
 {
-
-QrbRosInferenceNode::~QrbRosInferenceNode() = default;
 
 /**
  * \brief inferenece init, create subscriper, create publisher
@@ -20,6 +18,10 @@ QrbRosInferenceNode::QrbRosInferenceNode(const rclcpp::NodeOptions & options)
 {
   std::string backend_option = this->declare_parameter("backend_option", "");
   std::string model_path = this->declare_parameter("model_path", "");
+
+  // htp_core_id: index into hwDevices[0].v1.cores[] to bind to.
+  // -1 = no binding (default). 0 = core 0, 1 = core 1, etc.
+  // Internally converted to a single-element vector for QrbInferenceManager.
   int htp_core_id = this->declare_parameter("htp_core_id", -1);
 
   if (false == this->init(model_path, backend_option, htp_core_id)) {
@@ -41,7 +43,6 @@ QrbRosInferenceNode::QrbRosInferenceNode(const rclcpp::NodeOptions & options)
 
 /**
  * \brief callback func of subscriper, do model inference for every topic msg
- * \param msg msg from subscribed topic
  */
 void QrbRosInferenceNode::subscription_callback(const custom_msg::TensorList & msg)
 {
@@ -84,15 +85,21 @@ void QrbRosInferenceNode::publish_msg(custom_msg::TensorList pub_tensors)
  * \brief initilize the qrb_inference_mgr_
  * \param model_path path of model
  * \param backend_option backend lib of QNN
- * \param htp_core_id HTP core to bind (-1 = no binding)
+ * \param htp_core_id index into hwDevices[0].v1.cores[] (-1 = no binding)
  * \return true if success or false for failed
  */
 bool QrbRosInferenceNode::init(const std::string & model_path,
     const std::string & backend_option,
     int htp_core_id)
 try {
+  // Convert single int to vector; empty vector means no binding.
+  std::vector<int32_t> htp_core_ids;
+  if (htp_core_id >= 0) {
+    htp_core_ids.push_back(static_cast<int32_t>(htp_core_id));
+  }
+
   qrb_inference_mgr_ = std::make_unique<qrb::inference_mgr::QrbInferenceManager>(
-      model_path, backend_option, htp_core_id);
+      model_path, backend_option, htp_core_ids);
 
   return true;
 } catch (const std::logic_error & e) {

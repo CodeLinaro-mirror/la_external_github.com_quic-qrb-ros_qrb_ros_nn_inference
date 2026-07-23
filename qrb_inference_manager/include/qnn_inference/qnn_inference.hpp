@@ -4,6 +4,8 @@
 #ifndef QRB_INFERENCE_MANAGER_QNN_INFERENCE_HPP_
 #define QRB_INFERENCE_MANAGER_QNN_INFERENCE_HPP_
 
+#include "HTP/QnnHtpDevice.h"
+#include "HTP/QnnHtpPerfInfrastructure.h"
 #include "qnn_inference/qnn_inference_impl.hpp"
 #include "qrb_inference.hpp"
 
@@ -13,9 +15,11 @@ namespace qrb::inference_mgr
 class QnnInference : public QrbInference
 {
 public:
+  // htp_core_ids: indices into hwDevices[0].v1.cores[] to bind to.
+  // Empty = no core binding (default QNN behavior).
   QnnInference(const std::string & model_path,
       const std::string & backend_option,
-      int htp_core_id = -1);
+      const std::vector<int32_t> & htp_core_ids = {});
   ~QnnInference();
   StatusCode inference_init() override;
   StatusCode inference_graph_init() override;
@@ -36,14 +40,21 @@ private:
   GraphInfo ** graphs_info_ = nullptr;
   uint32_t graphs_count_ = 0;
   bool support_device_ = false;
-  int htp_core_id_ = -1;
+
+  // HTP core binding via power config (mirrors qcnode QnnImpl::SetHtpPerformanceMode).
+  // htp_core_ids_: indices into hwDevices[0].v1.cores[] (fixed device_id=0).
+  std::vector<int32_t> htp_core_ids_;
+  QnnHtpDevice_PerfInfrastructure_t * perf_infra_ = nullptr;
+  std::vector<uint32_t> power_config_ids_;
+
   std::vector<OutputTensor> output_tensor_;
   std::unique_ptr<QnnInterface> qnn_interface_{ nullptr };
 
   StatusCode initialize_backend();
   StatusCode create_device();
-  // Sets CDSP_LIBRARY_PATH to /vendor/dsp/cdsp{core_id} before deviceCreate()
-  void bind_cdsp_core(int core_id);
+  StatusCode create_device_with_core_binding();
+  StatusCode set_htp_performance_mode();
+  void free_perf_config();
   StatusCode create_context();
   StatusCode compose_graphs();
   StatusCode finalize_graphs();

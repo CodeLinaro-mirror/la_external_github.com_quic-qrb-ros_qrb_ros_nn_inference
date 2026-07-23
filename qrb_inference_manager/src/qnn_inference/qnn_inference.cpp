@@ -3,15 +3,13 @@
 
 #include "qnn_inference/qnn_inference.hpp"
 
-#include <cstdlib>
-
 namespace qrb::inference_mgr
 {
 
 QnnInference::QnnInference(const std::string & model_path,
     const std::string & backend_option,
-    int htp_core_id)
-  : model_path_(model_path), backend_option_(backend_option), htp_core_id_(htp_core_id)
+    const std::vector<int32_t> & htp_core_ids)
+  : model_path_(model_path), backend_option_(backend_option), htp_core_ids_(htp_core_ids)
 {
   auto is_bin_model = (std::string::npos != model_path.find(".bin"));
 
@@ -58,6 +56,13 @@ StatusCode QnnInference::inference_init()
 
   if (create_device() != StatusCode::SUCCESS) {
     return StatusCode::FAILURE;
+  }
+
+  if (!htp_core_ids_.empty() &&
+      backend_option_.find("libQnnHtp") != std::string::npos) {
+    if (set_htp_performance_mode() != StatusCode::SUCCESS) {
+      QRB_WARNING("set_htp_performance_mode failed, continue without perf binding");
+    }
   }
 
   return StatusCode::SUCCESS;
@@ -154,39 +159,6 @@ StatusCode QnnInference::initialize_backend()
   return StatusCode::SUCCESS;
 }
 
-void QnnInference::bind_cdsp_core(int core_id)
-{
-  std::string cdsp_path = "/vendor/dsp/cdsp" + std::to_string(core_id);
-
-  // Build new CDSP_LIBRARY_PATH: target cdsp path first, then non-cdsp entries only
-  // (skel lib paths such as hexagon-v*/unsigned).
-  // All /vendor/dsp/cdsp* entries from the existing value are stripped so that
-  // the HTP backend opens a session exclusively on the chosen CDSP.
-  std::string new_val = cdsp_path;
-  const char * existing = std::getenv("CDSP_LIBRARY_PATH");
-  if (existing && existing[0] != '\0') {
-    std::string existing_str(existing);
-    size_t start = 0;
-    while (true) {
-      size_t sep = existing_str.find(';', start);
-      std::string token = existing_str.substr(
-          start, sep == std::string::npos ? std::string::npos : sep - start);
-      // Keep only entries that are NOT /vendor/dsp/cdsp* paths
-      if (!token.empty() && token.find("/vendor/dsp/cdsp") == std::string::npos) {
-        new_val += ";";
-        new_val += token;
-      }
-      if (sep == std::string::npos) {
-        break;
-      }
-      start = sep + 1;
-    }
-  }
-
-  ::setenv("CDSP_LIBRARY_PATH", new_val.c_str(), 1 /*overwrite*/);
-  QRB_INFO("Binding HTP to CDSP core ", core_id, " (CDSP_LIBRARY_PATH=", new_val, ")");
-}
-
 StatusCode QnnInference::create_device()
 {
   auto is_device_property_supported = [this] {
@@ -205,22 +177,21 @@ StatusCode QnnInference::create_device()
 
   if (StatusCode::FAILURE != is_device_property_supported()) {
     if (nullptr != qnn_interface_->interface.deviceCreate) {
-      bool is_htp_backend = (std::string::npos != backend_option_.find("libQnnHtp"));
+      bool use_core_binding = !htp_core_ids_.empty() &&
+          (backend_option_.find("libQnnHtp") != std::string::npos);
 
-      if (is_htp_backend && htp_core_id_ >= 0) {
-        bind_cdsp_core(htp_core_id_);
-      } else if (!is_htp_backend && htp_core_id_ >= 0) {
-        QRB_WARNING("htp_core_id ignored: backend is not libQnnHtp");
-      }
-
-      // deviceCreate with nullptr config: the HTP backend picks up CDSP_LIBRARY_PATH
-      // to select which CDSP to open a session on.
-      auto qnn_status =
-          qnn_interface_->interface.deviceCreate(nullptr, nullptr, &(device_handle_));
-
-      if (QNN_SUCCESS != qnn_status && QNN_DEVICE_ERROR_UNSUPPORTED_FEATURE != qnn_status) {
-        QRB_ERROR("Failed to create device!");
-        return StatusCode::FAILURE;
+      if (use_core_binding) {
+        auto qnn_status = create_device_with_core_binding();
+        if (qnn_status != StatusCode::SUCCESS) {
+          return qnn_status;
+        }
+      } else {
+        auto qnn_status =
+            qnn_interface_->interface.deviceCreate(nullptr, nullptr, &(device_handle_));
+        if (QNN_SUCCESS != qnn_status && QNN_DEVICE_ERROR_UNSUPPORTED_FEATURE != qnn_status) {
+          QRB_ERROR("Failed to create device!");
+          return StatusCode::FAILURE;
+        }
       }
     }
     support_device_ = true;
@@ -228,6 +199,239 @@ StatusCode QnnInference::create_device()
 
   QRB_INFO("Qnn device initialize successfully");
   return StatusCode::SUCCESS;
+}
+
+StatusCode QnnInference::create_device_with_core_binding()
+{
+  // Fixed device_id=0 (hwDevices[0], the multi-core HTP device on this SoC).
+  // Select target cores from htp_core_ids_ (indices into hwDevices[0].v1.cores[]).
+  // Mirrors qcnode QnnImpl::Initialize: deviceId=GetQnnDeviceId(HTP0)=0, coreIds list.
+  const QnnDevice_PlatformInfo_t * platform_info = nullptr;
+  if (nullptr != qnn_interface_->interface.deviceGetPlatformInfo) {
+    qnn_interface_->interface.deviceGetPlatformInfo(nullptr, &platform_info);
+  }
+
+  std::vector<QnnDevice_PlatformInfo_t> device_platform_info_vec;
+  std::vector<QnnDevice_Config_t> device_custom_configs;
+  std::vector<const QnnDevice_Config_t *> device_config_ptrs;
+  QnnDevice_HardwareDeviceInfo_t * hw_device_copy = nullptr;
+  QnnDevice_CoreInfo_t * cores_heap = nullptr;
+
+  if (platform_info) {
+    // Log all available devices and cores
+    for (uint32_t d = 0; d < platform_info->v1.numHwDevices; ++d) {
+      const auto & hw_dev = platform_info->v1.hwDevices[d];
+      for (uint32_t c = 0; c < hw_dev.v1.numCores; ++c) {
+        QRB_INFO("Available: device_id=", hw_dev.v1.deviceId,
+            " core_id=", hw_dev.v1.cores[c].v1.coreId,
+            " core_type=", hw_dev.v1.cores[c].v1.coreType);
+      }
+    }
+
+    const uint32_t kDeviceIdx = 0;
+    if (kDeviceIdx < platform_info->v1.numHwDevices) {
+      hw_device_copy = new QnnDevice_HardwareDeviceInfo_t;
+      memcpy(hw_device_copy, &platform_info->v1.hwDevices[kDeviceIdx],
+          sizeof(QnnDevice_HardwareDeviceInfo_t));
+
+      // Build selected cores (mirrors qcnode coreIds loop)
+      std::vector<QnnDevice_CoreInfo_t> selected_cores;
+      const uint32_t num_avail = hw_device_copy->v1.numCores;
+      bool valid = true;
+      for (int32_t cidx : htp_core_ids_) {
+        if (cidx < 0 || static_cast<uint32_t>(cidx) >= num_avail) {
+          QRB_ERROR("htp_core_ids entry ", cidx, " out of range, numCores=", num_avail);
+          valid = false;
+          break;
+        }
+        selected_cores.push_back(hw_device_copy->v1.cores[cidx]);
+      }
+
+      if (valid) {
+        cores_heap = new QnnDevice_CoreInfo_t[selected_cores.size()];
+        for (size_t i = 0; i < selected_cores.size(); ++i) cores_heap[i] = selected_cores[i];
+        hw_device_copy->v1.numCores = static_cast<uint32_t>(selected_cores.size());
+        hw_device_copy->v1.cores    = cores_heap;
+
+        device_platform_info_vec.push_back(QnnDevice_PlatformInfo_t());
+        QnnDevice_PlatformInfo_t & e = device_platform_info_vec.back();
+        e.version         = QNN_DEVICE_PLATFORM_INFO_VERSION_1;
+        e.v1.numHwDevices = 1;
+        e.v1.hwDevices    = hw_device_copy;
+
+        device_custom_configs.push_back(QnnDevice_Config_t());
+        device_custom_configs.back().option       = QNN_DEVICE_CONFIG_OPTION_PLATFORM_INFO;
+        device_custom_configs.back().hardwareInfo =
+            reinterpret_cast<QnnDevice_PlatformInfo_t *>(&device_platform_info_vec[0]);
+        device_config_ptrs.push_back(&device_custom_configs.back());
+        device_config_ptrs.push_back(nullptr);
+
+        std::string cores_str;
+        for (size_t i = 0; i < htp_core_ids_.size(); ++i)
+          cores_str += (i ? "," : "") + std::to_string(htp_core_ids_[i]);
+        QRB_INFO("HTP device binding: device_id=0 cores=[", cores_str, "]");
+      } else {
+        delete hw_device_copy; hw_device_copy = nullptr;
+      }
+    } else {
+      QRB_WARNING("hwDevices[0] not found, using default device");
+    }
+  }
+
+  auto qnn_status = qnn_interface_->interface.deviceCreate(
+      nullptr,
+      device_config_ptrs.empty() ? nullptr : device_config_ptrs.data(),
+      &(device_handle_));
+
+  if (nullptr != qnn_interface_->interface.deviceFreePlatformInfo && platform_info) {
+    qnn_interface_->interface.deviceFreePlatformInfo(nullptr, platform_info);
+  }
+  delete[] cores_heap;  cores_heap = nullptr;
+  delete hw_device_copy; hw_device_copy = nullptr;
+
+  if (QNN_SUCCESS != qnn_status && QNN_DEVICE_ERROR_UNSUPPORTED_FEATURE != qnn_status) {
+    QRB_WARNING("deviceCreate with binding failed (err=", qnn_status,
+        "), falling back to default device");
+    auto fallback = qnn_interface_->interface.deviceCreate(nullptr, nullptr, &(device_handle_));
+    if (QNN_SUCCESS != fallback && QNN_DEVICE_ERROR_UNSUPPORTED_FEATURE != fallback) {
+      QRB_ERROR("Failed to create device (fallback)!");
+      return StatusCode::FAILURE;
+    }
+    return StatusCode::SUCCESS;
+  }
+
+  if (!device_config_ptrs.empty()) {
+    std::string cs;
+    for (size_t i = 0; i < htp_core_ids_.size(); ++i)
+      cs += (i ? "," : "") + std::to_string(htp_core_ids_[i]);
+    QRB_INFO("HTP device binding device_id=0 cores=[", cs, "] applied successfully");
+  }
+  return StatusCode::SUCCESS;
+}
+
+StatusCode QnnInference::set_htp_performance_mode()
+{
+  // Mirrors qcnode QnnImpl::SetHtpPerformanceMode():
+  // deviceGetInfrastructure -> createPowerConfigId(deviceId, coreId) -> setPowerConfig(BURST)
+  if (nullptr == qnn_interface_->interface.deviceGetInfrastructure) {
+    QRB_WARNING("deviceGetInfrastructure not supported, skipping perf binding");
+    return StatusCode::SUCCESS;
+  }
+
+  QnnDevice_Infrastructure_t device_infra = nullptr;
+  if (QNN_SUCCESS != qnn_interface_->interface.deviceGetInfrastructure(&device_infra) ||
+      nullptr == device_infra) {
+    QRB_ERROR("deviceGetInfrastructure failed");
+    return StatusCode::FAILURE;
+  }
+
+  auto * htp_infra = static_cast<QnnHtpDevice_Infrastructure_t *>(device_infra);
+  perf_infra_ = &(htp_infra->perfInfra);
+
+  if (nullptr == perf_infra_->createPowerConfigId ||
+      nullptr == perf_infra_->setPowerConfig ||
+      nullptr == perf_infra_->destroyPowerConfigId) {
+    QRB_WARNING("perfInfra function pointers null, skipping perf binding");
+    perf_infra_ = nullptr;
+    return StatusCode::SUCCESS;
+  }
+
+  // Resolve real deviceId and coreId values from platform info
+  // (qcnode: deviceId = hwDevices[GetQnnDeviceId(HTP0)].v1.deviceId = hwDevices[0].v1.deviceId,
+  //          coreId  = hwDevices[0].v1.cores[coreIds[i]].v1.coreId)
+  const QnnDevice_PlatformInfo_t * platform_info = nullptr;
+  if (nullptr == qnn_interface_->interface.deviceGetPlatformInfo ||
+      QNN_SUCCESS !=
+          qnn_interface_->interface.deviceGetPlatformInfo(nullptr, &platform_info) ||
+      nullptr == platform_info) {
+    QRB_ERROR("deviceGetPlatformInfo failed in set_htp_performance_mode");
+    perf_infra_ = nullptr;
+    return StatusCode::FAILURE;
+  }
+
+  const uint32_t kDeviceIdx = 0;
+  if (kDeviceIdx >= platform_info->v1.numHwDevices) {
+    QRB_ERROR("hwDevices[0] unavailable, numHwDevices=", platform_info->v1.numHwDevices);
+    qnn_interface_->interface.deviceFreePlatformInfo(nullptr, platform_info);
+    perf_infra_ = nullptr;
+    return StatusCode::FAILURE;
+  }
+
+  const auto & hw_device = platform_info->v1.hwDevices[kDeviceIdx].v1;
+  uint32_t real_device_id = hw_device.deviceId;
+  bool all_ok = true;
+
+  for (int32_t cidx : htp_core_ids_) {
+    if (cidx < 0 || static_cast<uint32_t>(cidx) >= hw_device.numCores) {
+      QRB_ERROR("htp_core_ids entry ", cidx, " out of range, numCores=", hw_device.numCores);
+      all_ok = false;
+      break;
+    }
+    uint32_t real_core_id = hw_device.cores[cidx].v1.coreId;
+    uint32_t power_config_id = UINT32_MAX;
+    auto ret = perf_infra_->createPowerConfigId(real_device_id, real_core_id, &power_config_id);
+    if (QNN_SUCCESS != ret) {
+      QRB_ERROR("createPowerConfigId failed for core ", cidx,
+          " (real_core_id=", real_core_id, "), error=", ret);
+      all_ok = false;
+      break;
+    }
+    power_config_ids_.push_back(power_config_id);
+    QRB_INFO("createPowerConfigId OK: device_id=", real_device_id,
+        " core_id=", real_core_id, " -> power_config_id=", power_config_id);
+  }
+
+  qnn_interface_->interface.deviceFreePlatformInfo(nullptr, platform_info);
+
+  if (!all_ok) {
+    free_perf_config();
+    return StatusCode::FAILURE;
+  }
+
+  // setPowerConfig: PERFORMANCE_MODE / BURST (matches qcnode BURST profile for HTP0 on 8797)
+  QnnHtpPerfInfrastructure_PowerConfig_t power_config;
+  memset(&power_config, 0, sizeof(power_config));
+  power_config.option = QNN_HTP_PERF_INFRASTRUCTURE_POWER_CONFIGOPTION_DCVS_V3;
+  power_config.dcvsV3Config.dcvsEnable             = 0;
+  power_config.dcvsV3Config.setDcvsEnable          = 1;
+  power_config.dcvsV3Config.powerMode              =
+      QNN_HTP_PERF_INFRASTRUCTURE_POWERMODE_PERFORMANCE_MODE;
+  power_config.dcvsV3Config.setSleepLatency        = 1;
+  power_config.dcvsV3Config.sleepLatency           = 40;  // sg_lowerLatency (V66+)
+  power_config.dcvsV3Config.setBusParams           = 1;
+  power_config.dcvsV3Config.setCoreParams          = 1;
+  power_config.dcvsV3Config.busVoltageCornerMin    = DCVS_VOLTAGE_VCORNER_MAX_VOLTAGE_CORNER;
+  power_config.dcvsV3Config.busVoltageCornerTarget = DCVS_VOLTAGE_VCORNER_MAX_VOLTAGE_CORNER;
+  power_config.dcvsV3Config.busVoltageCornerMax    = DCVS_VOLTAGE_VCORNER_MAX_VOLTAGE_CORNER;
+  power_config.dcvsV3Config.coreVoltageCornerMin    = DCVS_VOLTAGE_VCORNER_MAX_VOLTAGE_CORNER;
+  power_config.dcvsV3Config.coreVoltageCornerTarget = DCVS_VOLTAGE_VCORNER_MAX_VOLTAGE_CORNER;
+  power_config.dcvsV3Config.coreVoltageCornerMax    = DCVS_VOLTAGE_VCORNER_MAX_VOLTAGE_CORNER;
+
+  for (uint32_t pcid : power_config_ids_) {
+    power_config.dcvsV3Config.contextId = pcid;
+    const QnnHtpPerfInfrastructure_PowerConfig_t * configs[] = { &power_config, nullptr };
+    auto ret = perf_infra_->setPowerConfig(pcid, configs);
+    if (QNN_SUCCESS != ret) {
+      QRB_WARNING("setPowerConfig failed for power_config_id=", pcid, " error=", ret);
+    }
+  }
+
+  std::string cores_str;
+  for (size_t i = 0; i < htp_core_ids_.size(); ++i)
+    cores_str += (i ? "," : "") + std::to_string(htp_core_ids_[i]);
+  QRB_INFO("HTP performance mode bound to device_id=0 cores=[", cores_str, "]");
+  return StatusCode::SUCCESS;
+}
+
+void QnnInference::free_perf_config()
+{
+  if (nullptr != perf_infra_) {
+    for (uint32_t pcid : power_config_ids_) {
+      perf_infra_->destroyPowerConfigId(pcid);
+    }
+    perf_infra_ = nullptr;
+  }
+  power_config_ids_.clear();
 }
 
 StatusCode QnnInference::create_context()
@@ -296,6 +500,9 @@ void QnnInference::free_context()
 
 void QnnInference::free_device()
 {
+  // destroyPowerConfigId before deviceFree (mirrors qcnode DeInitialize order)
+  free_perf_config();
+
   if (true == support_device_) {
     if (nullptr != qnn_interface_->interface.deviceFree) {
       auto qnn_status = qnn_interface_->interface.deviceFree(device_handle_);
